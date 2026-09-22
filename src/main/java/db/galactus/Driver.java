@@ -35,7 +35,7 @@ public final class Driver implements AutoCloseable {
   private boolean transaction;
   public Driver(String uri, String username, String password)
       throws IOException {
-    this(uri, username, password, "neo4j", 30000);
+    this(uri, username, password, "", 30000);
   }
   public Driver(String uri, String username, String password, String database,
                 int timeoutMillis) throws IOException {
@@ -83,6 +83,13 @@ public final class Driver implements AutoCloseable {
     }
   }
   private void send(int tag, Object... fields) throws IOException {
+    if (tag == 0x10 || tag == 0x11) {
+      int index = tag == 0x10 ? 2 : 0;
+      Map<?, ?> original = (Map<?, ?>) fields[index];
+      Map<Object, Object> extra = new LinkedHashMap<>(original);
+      if ("".equals(extra.get("db"))) extra.remove("db");
+      fields[index] = extra;
+    }
     if (tag == 0x10)
       Types.validateParameters(fields[1], 0);
     byte[] b = PackStream.encode(new Types.Structure(tag, fields));
