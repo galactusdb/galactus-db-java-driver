@@ -13,3 +13,18 @@ node_modules/
 *.suo
 .vs/
 .DS_Store
+
+# Java / Maven / Gradle / IDEs
+*.class
+*.jar
+*.war
+*.ear
+.gradle/
+.idea/
+*.iml
+.classpath
+.project
+.settings/
+out/
+hs_err_pid*
+replay_pid*
