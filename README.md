@@ -1,27 +1,31 @@
 # Galactus DB Java Driver
 
-[Galactus DB](https://galactusdb.com) · [Driver catalogue](https://galactusdb.com/product/drivers) · [Type mapping](docs/BLUEPRINT.md) · [Spatial guide](docs/SPATIAL.md) · [Issues](https://github.com/galactusdb/galactus-db-java-driver/issues)
+[Galactus DB](https://galactusdb.com) · [Driver catalogue](https://galactusdb.com/product/drivers) · [Type mapping](docs/BLUEPRINT.md) · [Spatial guide](docs/SPATIAL.md) · [Changelog](CHANGELOG.md) · [Issues](https://github.com/galactusdb/galactus-db-java-driver/issues)
 
-Connect Java applications to Galactus DB with parameterised Cypher,
-native values, and explicit transactions. The driver speaks Bolt 4.4 directly
-and has **zero third-party runtime package dependencies**.
+Connect Java applications to Galactus DB with parameterised Cypher, native
+values and explicit transactions. The driver speaks Bolt 5.4 and agrees Bolt 4.4
+with servers that offer only that. It uses the JDK alone, with **zero
+third-party runtime package dependencies**, including for TLS.
 
-**Status: 0.1 / early access.** Source is available on `main`. This is a working,
-tested baseline with one connection per driver and eager results. Package-registry
-releases, pooling and cancellation are not available yet. Use source installs
-below and evaluate the [current scope](#current-scope) for your application.
+**Status: 0.2 / early access.** Source is available on `main`. Version 0.2.0
+adds Bolt 5, verified TLS straight to the Galactus server, recovery after
+database errors, error classification, element ids and exact decimals. Each
+driver owns one connection and returns eager results; install from source as
+shown below and check the [scope of this release](#scope-of-this-release)
+against your application.
 
 ## Contents
 
 - [Quickstart](#quickstart)
 - [Connection configuration](#connection-configuration)
+- [Encrypted connections](#encrypted-connections)
 - [Queries and results](#queries-and-results)
 - [Transactions](#transactions)
 - [Native type mapping](#native-type-mapping)
 - [Spatial values](#spatial-values)
 - [Errors and connection lifecycle](#errors-and-connection-lifecycle)
 - [Testing](#testing)
-- [Current scope](#current-scope)
+- [Scope of this release](#scope-of-this-release)
 
 ## Quickstart
 
@@ -46,7 +50,7 @@ Then add the locally installed artifact to your application:
 <dependency>
   <groupId>db.galactus</groupId>
   <artifactId>galactus-db-java-driver</artifactId>
-  <version>0.1.0</version>
+  <version>0.2.0</version>
 </dependency>
 ```
 
@@ -85,6 +89,7 @@ try (Driver driver = new Driver("bolt://127.0.0.1:7687", "gdb",
                                System.getenv("GDB_PASSWORD"))) {
     Driver.Result result = driver.executeQuery("RETURN $name AS name", Map.of("name", "Ada"));
     System.out.println(result.records.get(0).get("name"));
+    System.out.println("Bolt " + driver.protocolVersion());
 }
 ```
 
@@ -93,21 +98,67 @@ Java examples belong inside a method or a JShell session. Adapt error handling t
 
 ## Connection configuration
 
-`new Driver(uri, username, password)` uses the server default and a 30,000 ms timeout. The five-argument constructor adds `database` and `timeoutMillis`. Close with try-with-resources.
+`new Driver(uri, username, password)` uses the server's default database and a
+30,000 ms timeout. Pass `Driver.Options` for anything else:
+
+```java
+Driver.Options options = new Driver.Options()
+    .database("app")
+    .timeoutMillis(10_000);
+try (Driver driver = new Driver("bolt://127.0.0.1:7687", "gdb",
+                               System.getenv("GDB_PASSWORD"), options)) {
+    // ...
+}
+```
+
+The 0.1 five-argument constructor `(uri, username, password, database,
+timeoutMillis)` still works. Close the driver with try-with-resources.
 
 | Setting | Behaviour |
 |---|---|
-| URI | Direct `bolt://host:port`; omitted port is 7687 |
+| URI | `bolt://host:port` (plaintext) or `bolt+s://host:port` (verified TLS); omitted port is 7687 |
 | Authentication | Required username and password; no credentials in the URI |
 | Database | Empty/omitted database delegates selection to the server’s configured default |
-| Named database | Supply an existing database name explicitly, for example `app` |
-| Timeout | Default examples use 30 seconds; see the language-specific units above |
+| Named database | `Options.database("app")` for an existing database |
+| Timeout | `Options.timeoutMillis`, 30,000 ms by default |
+| Trusted certificates | `Options.trustedCertificates(path)`, `bolt+s://` only; see below |
 | Result handling | Records are buffered in memory until the query completes |
 
-Python, Node, Go, Java and C# support verified `bolt+s://` using their system TLS facilities. This driver validates certificate trust and hostname; use a TLS terminator when the database listener is plaintext.
+The driver offers Bolt 5.4 down to 5.0 and Bolt 4.4, and the server picks the
+highest version both support. After connecting, `protocolVersion()` returns the
+agreed version (`"5.4"` or `"4.4"`), `serverAgent()` the server's agent string
+and `connectionId()` the server's id for this connection, which helps when
+matching server logs.
 
-Timeouts bound socket waits, not necessarily total query duration or DNS lookup;
-Go uses a deadline for the complete operation. Calls are synchronized. Use separate connections for concurrent transactions.
+Timeouts bound socket waits, not necessarily total query duration or DNS lookup.
+Calls are synchronised. Use separate drivers for concurrent transactions.
+
+## Encrypted connections
+
+A Galactus server started with `GDB_TLS_CERT` and `GDB_TLS_KEY` serves TLS
+itself, on its usual Bolt port. Connect with `bolt+s://` and the driver verifies
+the certificate chain and the host name from the URI, and sends that name for
+SNI. It uses JSSE from the JDK.
+
+By default the JDK's trust store decides which certificates are trusted. For a
+private CA or a self-signed development certificate, point the driver at a PEM
+file holding one or more certificates; it then trusts those certificates
+instead of the JDK store:
+
+```java
+Driver.Options options = new Driver.Options()
+    .trustedCertificates(java.nio.file.Path.of("/etc/galactus/ca.pem"));
+try (Driver driver = new Driver("bolt+s://db.internal:7687", "gdb",
+                               System.getenv("GDB_PASSWORD"), options)) {
+    // ...
+}
+```
+
+Verification is always on: there is no option to skip it, and the driver never
+falls back from `bolt+s://` to plaintext. Setting `trustedCertificates` on a
+`bolt://` URI is a configuration error (`IllegalArgumentException`).
+`bolt+ssc://` and the routing schemes `neo4j://`, `neo4j+s://` and
+`neo4j+ssc://` are rejected.
 
 ## Queries and results
 
@@ -125,12 +176,13 @@ Results expose column keys, records indexed by column name, and server summary
 metadata. Read a column with `result.records.get(0).get("name")`. Use unique column aliases because
 records are maps. Summary fields can include the database, query classification,
 timings, bookmark and update statistics; only fields supplied by the server are
-present. A query without rows still returns its summary.
+present. A query without rows still returns its summary. `driver.lastBookmark()`
+returns the most recent bookmark from an autocommit query or a commit.
 
 Lists and maps can be nested. Values are recursively encoded and hydrated,
 including graph properties and spatial envelopes. Use Cypher `LIMIT` or
-application-level pagination for large result sets: this release is eager,
-not a lazy streaming cursor.
+application-level pagination for large result sets: results are read eagerly
+rather than through a lazy cursor.
 
 ## Transactions
 
@@ -147,13 +199,12 @@ driver.commit();
 
 The transaction belongs to the connection. Keep both statements on the same
 driver and finish the transaction before reusing it for unrelated work. Closing
-or disposing a connection rolls back an unfinished transaction; it never
-implicitly commits. The read-only argument requests a read transaction.
+a driver rolls back an unfinished transaction; it never implicitly commits. The
+read-only argument requests a read transaction.
 
-If a query or transport failure occurs, the driver discards the connection.
-Do not issue rollback on a connection already discarded after failure. A lost
-connection during COMMIT can mean the commit outcome is unknown; reconcile the
-result before retrying a write.
+When a query inside a transaction fails with a database error, the server rolls
+the transaction back and the driver marks it closed. The driver itself stays
+open: start a new transaction, or run autocommit queries, straight away.
 
 ## Native type mapping
 
@@ -161,17 +212,34 @@ result before retrying a write.
 
 - Database integers are signed 64-bit; out-of-range integer inputs fail.
 - Bytes stay binary; values do not pass through JSON.
-- Temporal wrappers preserve nanoseconds, offsets and named zones when the
-  runtime’s native types cannot represent the full value.
+- `OffsetDateTime` keeps its instant and offset on both Bolt 5 and Bolt 4.4.
+- Named-zone datetimes arrive as `Types.ZonedDateTimeValue`, which keeps the
+  IANA zone name and nanoseconds. Its `basis` says whether `seconds` counts
+  local wall-clock time or UTC; build one with `ZonedDateTimeValue.local(...)`,
+  `ZonedDateTimeValue.utc(...)` or `ZonedDateTimeValue.of(zonedDateTime)`, and
+  turn it into a `java.time.ZonedDateTime` with `toZonedDateTime()`. A plain
+  `ZonedDateTime` parameter is sent with its resolved offset.
 - Calendar duration keeps months, days, seconds and nanoseconds separately.
-- Graph nodes, relationships and paths have named result types. Bind their IDs
-  or properties as parameters; the graph entities themselves are result-only.
+- Graph nodes, relationships and paths have named result types. Each node and
+  relationship has an `elementId` string, and relationships also have
+  `startElementId` and `endElementId`; on Galactus these are the decimal text
+  of the integer ids. Bind ids or properties as parameters; the graph entities
+  themselves are result-only.
+- `DECIMAL` values arrive as strings holding their exact digits. Send a
+  `BigDecimal` and the driver writes its exact plain text; convert it in Cypher
+  with `decimal($amount)`.
 - Unknown wire structures remain explicit structures and cannot be used as
-  generic application-object serialization.
+  generic application-object serialisation.
+
+```java
+Driver.Result r = driver.executeQuery("RETURN decimal($amount) AS amount",
+    Map.of("amount", new java.math.BigDecimal("12.30")));
+java.math.BigDecimal amount = new java.math.BigDecimal((String) r.records.get(0).get("amount"));
+```
 
 No ORM or automatic arbitrary-object mapping is included. Convert application
-models, UUIDs and decimal values explicitly to your chosen supported format.
-See the [complete type mapping](docs/BLUEPRINT.md) for precision and range details.
+models and UUIDs explicitly to a supported format. See the
+[complete type mapping](docs/BLUEPRINT.md) for precision and range details.
 
 ## Spatial values
 
@@ -209,21 +277,47 @@ solids are outside the current database scope. See the [spatial guide](docs/SPAT
 
 ## Errors and connection lifecycle
 
-Server errors expose `Driver.DatabaseException.code`, `.metadata`, and `getMessage()`. Distinguish these from protocol, connection,
-timeout, and unsupported-value errors in your application.
+Server errors raise `Driver.DatabaseException`. It keeps the server's `code`,
+`getMessage()` and `metadata`, and splits the code into `classification`,
+`category` and `title`. `isClientError()`, `isTransient()` and
+`isDatabaseError()` report the classification, and `isRetryable()` is true for
+transient errors. `ErrorCodes` holds the common codes as constants:
+
+```java
+try {
+    driver.executeQuery("CREATE (:Account {email:$email})", Map.of("email", "ada@example.com"));
+} catch (Driver.DatabaseException e) {
+    if (ErrorCodes.ConstraintValidationFailed.equals(e.code)) {
+        // The email is already registered.
+    } else {
+        throw e;
+    }
+}
+// The same driver is ready for the next query.
+```
+
+After a database error the driver resets the connection, so the same driver
+runs the next query. The driver never retries anything on its own; when
+`isRetryable()` is true, your application decides whether to run the work again.
+
+The connection is closed when reading or writing fails (network, timeout or
+TLS), when the server breaks the protocol, or when authentication fails. Open a
+new driver after any of these. If the connection drops during `commit()`, the
+outcome of that commit is unknown: check the data before running the write
+again. A `DatabaseException` from `commit()` means the transaction did not
+commit.
 
 | Symptom | Check |
 |---|---|
 | Connection refused | Host, port, listener and network reachability |
 | Authentication rejected | Database username and configured password |
 | Database not found | Explicit database name; omit it to use the server default |
-| TLS negotiation fails | TLS terminator, trust chain and certificate hostname |
+| TLS handshake fails | `bolt+s://` against a TLS-enabled server, the trust chain (`trustedCertificates`) and the host name in the certificate |
 | Unsupported parameter | Convert the object to a supported scalar/container or named value |
-| Driver is closed after an error | Open a new connection; failed connections are discarded |
+| Driver is closed after an error | A network, TLS, protocol or authentication failure closed it; open a new driver |
 
 Credentials and parameters are not logged by the driver. Avoid writing them to
-application logs when reporting errors. The driver performs no automatic write
-retries and has no background connection pool to recover failed connections.
+application logs when reporting errors.
 
 ## Testing
 
@@ -237,34 +331,37 @@ java -cp .build/java db.galactus.DriverTest
 
 Fixtures and tests are self-contained. Without `GDB_TEST_URI`, live database
 tests are skipped. For integration tests, use a fresh disposable server and
-set `GDB_TEST_URI` and `GDB_TEST_PASSWORD`; tests create data and exercise
-transactions. The configured default database is used. Reset the disposable
-database before repeating the suite.
+set `GDB_TEST_URI` and `GDB_TEST_PASSWORD`; tests create data, a uniqueness
+constraint and exercise transactions. Reset the disposable database before
+repeating the suite.
 
-See [test instructions](tests/README.md) for platform prerequisites and environment
-examples. The shared live suite covers 57 spatial cases per language, integer
-boundaries, native values, large chunked payloads, transactions and failures.
+See [test instructions](tests/README.md) for the environment variables, the TLS
+setup and the full list of checks. The live suite covers 57 spatial cases,
+integer boundaries, native values, large chunked payloads, transactions, element
+ids, datetimes on both protocols, recovery after errors, error codes, decimals
+and verified TLS.
 
-## Current scope
+## Scope of this release
 
-This release provides direct connections, basic authentication, parameterised
-queries, eager records and summaries, explicit transactions, native type mapping,
-and full supported spatial interchange. It does not yet provide pooling,
-routing discovery, managed retry callbacks, lazy cursors, cancellation, an ORM,
-or asynchronous APIs outside Node. Messages are capped at 64 MiB and nesting at
-64 levels; aggregate result memory can exceed a single message.
+Version 0.2.0 provides direct connections over Bolt 5.4 or 4.4, verified TLS,
+basic authentication, parameterised queries, eager records and summaries,
+explicit transactions, recovery after database errors, classified errors,
+native type mapping and full spatial interchange. Each driver owns one
+connection. Connection pools, routing, sessions that send bookmarks, lazy
+cursors, cancellation, managed retries and asynchronous APIs are outside this
+release. Messages are capped at 64 MiB and nesting at 64 levels; aggregate
+result memory can exceed a single message.
 
-Windows builds and real-server interoperability have been tested. Broader
-platform validation, TLS interoperability and production load testing remain
-release work. See [the shared blueprint](docs/BLUEPRINT.md) and
-[implementation overview](docs/OVERVIEW.md) for the precise contract.
+See [the shared blueprint](docs/BLUEPRINT.md) and
+[implementation overview](docs/OVERVIEW.md) for the precise contract and the
+platforms tested.
 
 ## Feedback and contribution
 
 Use [GitHub issues](https://github.com/galactusdb/galactus-db-java-driver/issues) for reproducible
 bugs and focused feature requests. Include runtime/OS versions, driver commit,
 expected behaviour and a small reproduction with credentials and sensitive
-data removed. Keep changes dependency-light and run the relevant tests before
+data removed. Keep changes dependency-free and run the relevant tests before
 opening a pull request against `main`.
 
 Visit [galactusdb.com](https://galactusdb.com) for Galactus DB, or browse the
