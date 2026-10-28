@@ -3,13 +3,17 @@ package db.galactus;
 import java.time.*;
 import java.util.*;
 
-/** Lossless Bolt values. Seconds in legacy DateTime are LOCAL epoch seconds. */
+/**
+ * Lossless Bolt values. Graph values carry Bolt 5 element ids (filled from the
+ * integer id on Bolt 4.4); {@link ZonedDateTimeValue} records whether its
+ * seconds are local or UTC.
+ */
 public final class Types {
   private Types() {}
   static void validateParameters(Object v, int depth) {
     if (depth >= 64)
       throw new IllegalArgumentException("Nesting exceeds 64 levels");
-    v = dehydrate(v);
+    v = dehydrate(v, false);
     if (v instanceof Structure) {
       Structure s = (Structure)v;
       switch (s.tag) {
@@ -19,6 +23,8 @@ public final class Types {
       case 0x64:
       case 0x46:
       case 0x66:
+      case 0x49:
+      case 0x69:
       case 0x45:
       case 0x58:
       case 0x59:
@@ -52,36 +58,62 @@ public final class Types {
     public final long id;
     public final List<?> labels;
     public final Map<?, ?> properties;
+    /** Bolt 5 element id; on Bolt 4.4 the decimal text of {@link #id}. */
+    public final String elementId;
     public Node(long id, List<?> labels, Map<?, ?> properties) {
-      super(0x4e, id, labels, properties);
+      this(id, labels, properties, Long.toString(id));
+    }
+    public Node(long id, List<?> labels, Map<?, ?> properties,
+                String elementId) {
+      super(0x4e, id, labels, properties, elementId);
       this.id = id;
       this.labels = labels;
       this.properties = properties;
+      this.elementId = elementId;
     }
   }
   public static final class Relationship extends Structure {
     public final long id, startId, endId;
     public final String type;
     public final Map<?, ?> properties;
+    /** Bolt 5 element ids; on Bolt 4.4 the decimal text of the integer ids. */
+    public final String elementId, startElementId, endElementId;
     public Relationship(long id, long startId, long endId, String type,
                         Map<?, ?> properties) {
-      super(0x52, id, startId, endId, type, properties);
+      this(id, startId, endId, type, properties, Long.toString(id),
+           Long.toString(startId), Long.toString(endId));
+    }
+    public Relationship(long id, long startId, long endId, String type,
+                        Map<?, ?> properties, String elementId,
+                        String startElementId, String endElementId) {
+      super(0x52, id, startId, endId, type, properties, elementId,
+            startElementId, endElementId);
       this.id = id;
       this.startId = startId;
       this.endId = endId;
       this.type = type;
       this.properties = properties;
+      this.elementId = elementId;
+      this.startElementId = startElementId;
+      this.endElementId = endElementId;
     }
   }
   public static final class UnboundRelationship extends Structure {
     public final long id;
     public final String type;
     public final Map<?, ?> properties;
+    /** Bolt 5 element id; on Bolt 4.4 the decimal text of {@link #id}. */
+    public final String elementId;
     public UnboundRelationship(long id, String type, Map<?, ?> properties) {
-      super(0x72, id, type, properties);
+      this(id, type, properties, Long.toString(id));
+    }
+    public UnboundRelationship(long id, String type, Map<?, ?> properties,
+                               String elementId) {
+      super(0x72, id, type, properties, elementId);
       this.id = id;
       this.type = type;
       this.properties = properties;
+      this.elementId = elementId;
     }
   }
   public static final class Path extends Structure {
@@ -103,14 +135,71 @@ public final class Types {
       this.nanoseconds = nanoseconds;
     }
   }
+  /**
+   * A datetime in a named IANA zone. {@link #basis} says whether
+   * {@link #seconds} counts local wall-clock epoch seconds (Bolt tag
+   * {@code f}) or UTC epoch seconds (tag {@code i}). The value is sent in its
+   * own basis on every protocol version.
+   */
   public static final class ZonedDateTimeValue extends Structure {
+    public enum Basis { LOCAL, UTC }
     public final long seconds, nanoseconds;
     public final String zoneId;
+    public final Basis basis;
+    /** Local-based value, as in 0.1: {@code seconds} are local epoch seconds. */
     public ZonedDateTimeValue(long seconds, long nanoseconds, String zoneId) {
-      super(0x66, seconds, nanoseconds, zoneId);
+      this(Basis.LOCAL, seconds, nanoseconds, zoneId);
+    }
+    public ZonedDateTimeValue(Basis basis, long seconds, long nanoseconds,
+                              String zoneId) {
+      super(basis == Basis.UTC ? 0x69 : 0x66, seconds, nanoseconds, zoneId);
+      this.basis = Objects.requireNonNull(basis);
       this.seconds = seconds;
       this.nanoseconds = nanoseconds;
       this.zoneId = zoneId;
+    }
+    public static ZonedDateTimeValue local(long localSeconds, long nanoseconds,
+                                           String zoneId) {
+      return new ZonedDateTimeValue(Basis.LOCAL, localSeconds, nanoseconds,
+                                    zoneId);
+    }
+    public static ZonedDateTimeValue utc(long utcSeconds, long nanoseconds,
+                                         String zoneId) {
+      return new ZonedDateTimeValue(Basis.UTC, utcSeconds, nanoseconds, zoneId);
+    }
+    /** UTC-based value keeping the zone ID of a {@code java.time} value. */
+    public static ZonedDateTimeValue of(ZonedDateTime t) {
+      return utc(t.toEpochSecond(), t.getNano(), t.getZone().getId());
+    }
+    /**
+     * Resolves with the JDK time zone database. A local value in a DST overlap
+     * takes the earlier offset; one in a gap moves forward.
+     */
+    public ZonedDateTime toZonedDateTime() {
+      ZoneId zone = ZoneId.of(zoneId);
+      int nanos = Math.toIntExact(nanoseconds);
+      return basis == Basis.UTC
+          ? Instant.ofEpochSecond(seconds, nanos).atZone(zone)
+          : LocalDateTime.ofEpochSecond(seconds, nanos, ZoneOffset.UTC)
+                .atZone(zone);
+    }
+    /** Equal only when basis, seconds, nanoseconds and zone all match. */
+    @Override
+    public boolean equals(Object o) {
+      if (!(o instanceof ZonedDateTimeValue))
+        return false;
+      ZonedDateTimeValue z = (ZonedDateTimeValue)o;
+      return basis == z.basis && seconds == z.seconds &&
+          nanoseconds == z.nanoseconds && Objects.equals(zoneId, z.zoneId);
+    }
+    @Override
+    public int hashCode() {
+      return Objects.hash(basis, seconds, nanoseconds, zoneId);
+    }
+    @Override
+    public String toString() {
+      return "ZonedDateTimeValue(" + basis + ", " + seconds + ", " +
+          nanoseconds + ", " + zoneId + ")";
     }
   }
   public static final class Point2D extends Structure {
@@ -134,7 +223,16 @@ public final class Types {
       this.z = z;
     }
   }
-  static Object dehydrate(Object v) {
+  /** Bolt 4.4 form, as in 0.1. */
+  static Object dehydrate(Object v) { return dehydrate(v, false); }
+  /**
+   * Converts a native input to its wire form. Offset datetimes use tag
+   * {@code I} (UTC seconds) when {@code bolt5}, {@code F} (local seconds)
+   * otherwise. BigDecimal becomes its exact plain text.
+   */
+  static Object dehydrate(Object v, boolean bolt5) {
+    if (v instanceof java.math.BigDecimal)
+      return ((java.math.BigDecimal)v).toPlainString();
     if (v instanceof LocalDate)
       return new Structure(0x44, ((LocalDate)v).toEpochDay());
     if (v instanceof LocalTime)
@@ -155,6 +253,9 @@ public final class Types {
       v = ((ZonedDateTime)v).toOffsetDateTime(); // preserves overlap instant
     if (v instanceof OffsetDateTime) {
       OffsetDateTime t = (OffsetDateTime)v;
+      if (bolt5)
+        return new Structure(0x49, t.toEpochSecond(), (long)t.getNano(),
+                             (long)t.getOffset().getTotalSeconds());
       return new Structure(
           0x46, t.toLocalDateTime().toEpochSecond(ZoneOffset.UTC),
           (long)t.getNano(), (long)t.getOffset().getTotalSeconds());
@@ -175,16 +276,26 @@ public final class Types {
     try {
       switch (tag) {
       case 0x4e:
-        arity(f, 3);
-        return new Node((Long)f[0], (List<?>)f[1], (Map<?, ?>)f[2]);
+        arity(f, 3, 4);
+        return f.length == 3
+            ? new Node((Long)f[0], (List<?>)f[1], (Map<?, ?>)f[2])
+            : new Node((Long)f[0], (List<?>)f[1], (Map<?, ?>)f[2],
+                       (String)f[3]);
       case 0x52:
-        arity(f, 5);
-        return new Relationship((Long)f[0], (Long)f[1], (Long)f[2],
-                                (String)f[3], (Map<?, ?>)f[4]);
+        arity(f, 5, 8);
+        return f.length == 5
+            ? new Relationship((Long)f[0], (Long)f[1], (Long)f[2],
+                               (String)f[3], (Map<?, ?>)f[4])
+            : new Relationship((Long)f[0], (Long)f[1], (Long)f[2],
+                               (String)f[3], (Map<?, ?>)f[4], (String)f[5],
+                               (String)f[6], (String)f[7]);
       case 0x72:
-        arity(f, 3);
-        return new UnboundRelationship((Long)f[0], (String)f[1],
-                                       (Map<?, ?>)f[2]);
+        arity(f, 3, 4);
+        return f.length == 3
+            ? new UnboundRelationship((Long)f[0], (String)f[1],
+                                      (Map<?, ?>)f[2])
+            : new UnboundRelationship((Long)f[0], (String)f[1],
+                                      (Map<?, ?>)f[2], (String)f[3]);
       case 0x50:
         arity(f, 3);
         return new Path((List<?>)f[0], (List<?>)f[1], (List<?>)f[2]);
@@ -209,9 +320,19 @@ public final class Types {
             LocalDateTime.ofEpochSecond((Long)f[0], Math.toIntExact((Long)f[1]),
                                         ZoneOffset.UTC),
             ZoneOffset.ofTotalSeconds(Math.toIntExact((Long)f[2])));
+      case 0x49:
+        arity(f, 3);
+        return OffsetDateTime.ofInstant(
+            Instant.ofEpochSecond((Long)f[0], (Long)f[1]),
+            ZoneOffset.ofTotalSeconds(Math.toIntExact((Long)f[2])));
       case 0x66:
         arity(f, 3);
-        return new ZonedDateTimeValue((Long)f[0], (Long)f[1], (String)f[2]);
+        return new ZonedDateTimeValue(ZonedDateTimeValue.Basis.LOCAL,
+                                      (Long)f[0], (Long)f[1], (String)f[2]);
+      case 0x69:
+        arity(f, 3);
+        return new ZonedDateTimeValue(ZonedDateTimeValue.Basis.UTC,
+                                      (Long)f[0], (Long)f[1], (String)f[2]);
       case 0x45:
         arity(f, 4);
         return new Duration((Long)f[0], (Long)f[1], (Long)f[2], (Long)f[3]);
@@ -229,8 +350,10 @@ public final class Types {
       return new Structure(tag, f);
     }
   }
-  static void arity(Object[] f, int n) {
-    if (f.length != n)
-      throw new IllegalArgumentException("Invalid structure field count");
+  static void arity(Object[] f, int... allowed) {
+    for (int n : allowed)
+      if (f.length == n)
+        return;
+    throw new IllegalArgumentException("Invalid structure field count");
   }
 }
