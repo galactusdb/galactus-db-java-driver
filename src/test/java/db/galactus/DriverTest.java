@@ -260,7 +260,7 @@ public final class DriverTest {
         violation = e;
       }
       check(violation != null &&
-                ErrorCodes.ConstraintValidationFailed.equals(violation.code) &&
+                ErrorCodes.CONSTRAINT_VALIDATION_FAILED.equals(violation.code) &&
                 "Schema".equals(violation.category) &&
                 "ConstraintValidationFailed".equals(violation.title),
             "constraint violation " +

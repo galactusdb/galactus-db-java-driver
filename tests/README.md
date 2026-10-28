@@ -68,7 +68,7 @@ The live suite checks:
 - a failure inside an explicit transaction closing the transaction and rolling
   back its writes, with autocommit working afterwards;
 - a unique constraint violation reporting
-  `ErrorCodes.ConstraintValidationFailed`;
+  `ErrorCodes.CONSTRAINT_VALIDATION_FAILED`;
 - `RETURN decimal($d)` with `BigDecimal("12.30")` returning `"12.30"`;
 - unsupported parameters (a plain object, a returned node) raising before
   anything is sent, with the driver still usable;

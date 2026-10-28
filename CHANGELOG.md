@@ -17,7 +17,7 @@
   decimal text of the integer ids.
 - `DatabaseException.classification`, `category` and `title`, plus
   `isClientError()`, `isTransient()`, `isDatabaseError()` and `isRetryable()`.
-- `ErrorCodes` constants, including `ConstraintValidationFailed`.
+- `ErrorCodes` constants, such as `ErrorCodes.CONSTRAINT_VALIDATION_FAILED`.
 - `BigDecimal` parameters, sent as `toPlainString()` text for `decimal($param)`.
 - `ZonedDateTimeValue.Basis` (local or UTC), with `local`, `utc` and `of`
   factories, `toZonedDateTime()`, and equality on basis, seconds, nanoseconds

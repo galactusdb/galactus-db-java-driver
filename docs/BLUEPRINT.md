@@ -37,7 +37,7 @@ driver then uses the 4.4 message and value forms.
 - `bolt_agent` is a map: `product` (`galactus-db-{language}-driver/0.2.0`),
   `language` (for example `Python/3.12.1`), `language_details` (runtime or
   compiler name, optional) and `platform` (OS and architecture, optional). Send
-  it from 5.1 on; 5.3 makes it required.
+  it from 5.1 on (not in a 5.0 HELLO); 5.3 makes it required.
 - `user_agent` is `galactus-db-{language}-driver/0.2.0`.
 
 A failed authentication is terminal: the server closes the connection. Raise
@@ -266,8 +266,9 @@ keeps `code` and `message` unchanged and adds, in the language's naming:
 
 Each driver also publishes the codes below as constants (Python module
 constants, a C# static class, Java/Go/Rust/C++ constants, a frozen Node object),
-named after the title, so applications compare against a name rather than a
-string. Codes the server adds later still work as plain strings.
+named after the title in the language's constant style (`ErrorCodes.TypeError`
+in C# and Java, `codes.TYPE_ERROR` in Python, `galactus.TypeError` in Go), so applications
+compare against a name rather than a string. Codes the server adds later still work as plain strings.
 
 | Constant | Code |
 |---|---|
@@ -290,9 +291,10 @@ string. Codes the server adds later still work as plain strings.
 | Unauthorized | `Neo.ClientError.Security.Unauthorized` |
 | DatabaseNotFound | `Neo.ClientError.Database.DatabaseNotFound` |
 
-Where a language name clashes (for example `TypeError` in Python or Node),
-keep the constant inside the codes namespace (`ErrorCodes.TypeError`,
-`codes.TYPE_ERROR`) rather than renaming it.
+Keep the constants inside a codes namespace so names such as `TypeError` do not
+clash with the language's own. A configuration error (for example a trusted
+certificate file on a `bolt://` URI) raises the language's usual argument or
+configuration error before connecting.
 
 ## Follow-on releases
 

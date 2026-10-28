@@ -287,7 +287,7 @@ transient errors. `ErrorCodes` holds the common codes as constants:
 try {
     driver.executeQuery("CREATE (:Account {email:$email})", Map.of("email", "ada@example.com"));
 } catch (Driver.DatabaseException e) {
-    if (ErrorCodes.ConstraintValidationFailed.equals(e.code)) {
+    if (ErrorCodes.CONSTRAINT_VALIDATION_FAILED.equals(e.code)) {
         // The email is already registered.
     } else {
         throw e;
