@@ -273,6 +273,22 @@ public final class DriverTest {
                     .records.get(0)
                     .get("d")),
             "decimal");
+
+      // A rejected parameter raises before sending and keeps the connection.
+      int rejected = 0;
+      for (Object bad : List.of(new Object(), a)) {
+        try {
+          d.executeQuery("RETURN $p AS p", Map.of("p", bad));
+        } catch (java.io.IOException | IllegalArgumentException e) {
+          check(!(e instanceof Driver.DatabaseException), "client-side reject");
+          rejected++;
+        }
+      }
+      check(rejected == 2 && d.executeQuery("RETURN 3 AS three")
+                                 .records.get(0)
+                                 .get("three")
+                                 .equals(3L),
+            "usable after rejected parameter");
     }
 
     if (uri.startsWith("bolt+s://")) {

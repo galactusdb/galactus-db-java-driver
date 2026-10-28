@@ -70,6 +70,8 @@ The live suite checks:
 - a unique constraint violation reporting
   `ErrorCodes.ConstraintValidationFailed`;
 - `RETURN decimal($d)` with `BigDecimal("12.30")` returning `"12.30"`;
+- unsupported parameters (a plain object, a returned node) raising before
+  anything is sent, with the driver still usable;
 - with a `bolt+s://` URI, that connecting without the trusted certificate fails
   TLS verification and that `trustedCertificates` on `bolt://` is rejected;
 - rejected authentication.

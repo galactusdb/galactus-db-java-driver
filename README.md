@@ -297,7 +297,8 @@ try {
 ```
 
 After a database error the driver resets the connection, so the same driver
-runs the next query. The driver never retries anything on its own; when
+runs the next query. A parameter the driver cannot encode raises before
+anything is sent, and the connection stays open. The driver never retries anything on its own; when
 `isRetryable()` is true, your application decides whether to run the work again.
 
 The connection is closed when reading or writing fails (network, timeout or

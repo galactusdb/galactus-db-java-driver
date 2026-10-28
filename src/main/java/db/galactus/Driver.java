@@ -259,6 +259,13 @@ public final class Driver implements AutoCloseable {
   }
 
   private void send(int tag, Object... fields) throws IOException {
+    write(frame(tag, fields));
+  }
+  /**
+   * Validates and encodes a complete request without touching the socket, so
+   * an unsupported parameter leaves the connection usable.
+   */
+  private byte[] frame(int tag, Object... fields) throws IOException {
     if (tag == 0x10 || tag == 0x11) {
       int index = tag == 0x10 ? 2 : 0;
       Map<?, ?> original = (Map<?, ?>)fields[index];
@@ -278,7 +285,10 @@ public final class Driver implements AutoCloseable {
       o.write(b, p, n);
     }
     o.writeShort(0);
-    out.write(frame.toByteArray());
+    return frame.toByteArray();
+  }
+  private void write(byte[] frame) throws IOException {
+    out.write(frame);
     out.flush();
   }
   /**
@@ -370,9 +380,11 @@ public final class Driver implements AutoCloseable {
   public synchronized Result executeQuery(String query,
                                           Map<String, ?> parameters)
       throws IOException {
+    // Encoding errors raise before anything is sent and keep the connection.
+    byte[] run = frame(0x10, query, parameters,
+                       transaction ? Map.of() : Map.of("db", database));
     try {
-      send(0x10, query, parameters,
-           transaction ? Map.of() : Map.of("db", database));
+      write(run);
       Map<String, Object> meta = success();
       List<String> keys = (List<String>)meta.get("fields");
       List<Map<String, Object>> records = new ArrayList<>();

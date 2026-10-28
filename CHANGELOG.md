@@ -29,6 +29,8 @@
   any open transaction closed (the server rolls it back) and raises the error;
   the same driver runs the next query. I/O, TLS and protocol failures and
   failed authentication still close it.
+- A parameter the driver cannot encode raises before anything is sent and no
+  longer closes the driver.
 - Offset datetimes are sent as Bolt 5 UTC datetimes (`I`) on a 5.x connection
   and as legacy datetimes (`F`) on 4.4. Both forms decode to the same
   `OffsetDateTime`.
