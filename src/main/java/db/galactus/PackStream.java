@@ -8,9 +8,18 @@ import java.util.*;
 public final class PackStream {
   public static final int MAX_MESSAGE = 64 * 1024 * 1024;
   private PackStream() {}
+  /** Encodes in the Bolt 4.4 value forms, as 0.1 did. */
   public static byte[] encode(Object value) throws IOException {
+    return encode(value, false);
+  }
+  /**
+   * Encodes for the agreed protocol: {@code bolt5} writes offset datetimes as
+   * {@code I} and graph values with element ids; otherwise the Bolt 4.4 forms
+   * ({@code F}, no element ids) are written.
+   */
+  public static byte[] encode(Object value, boolean bolt5) throws IOException {
     ByteArrayOutputStream b = new ByteArrayOutputStream();
-    write(new DataOutputStream(b), value, 0);
+    write(new DataOutputStream(b), value, 0, bolt5);
     if (b.size() > MAX_MESSAGE)
       throw new IOException("Message exceeds 64 MiB");
     return b.toByteArray();
@@ -30,11 +39,11 @@ public final class PackStream {
       o.writeInt(n);
     }
   }
-  private static void write(DataOutputStream o, Object v, int depth)
-      throws IOException {
+  private static void write(DataOutputStream o, Object v, int depth,
+                            boolean bolt5) throws IOException {
     if (depth >= 64)
       throw new IOException("Nesting exceeds 64 levels");
-    v = Types.dehydrate(v);
+    v = Types.dehydrate(v, bolt5);
     if (v == null) {
       o.writeByte(0xc0);
       return;
@@ -88,12 +97,18 @@ public final class PackStream {
     }
     if (v instanceof Types.Structure) {
       Types.Structure s = (Types.Structure)v;
-      if (s.fields.size() > 15 || s.tag < 0 || s.tag > 255)
+      List<Object> fields = s.fields;
+      if (!bolt5 && (s instanceof Types.Node ||
+                     s instanceof Types.UnboundRelationship))
+        fields = fields.subList(0, 3);
+      else if (!bolt5 && s instanceof Types.Relationship)
+        fields = fields.subList(0, 5);
+      if (fields.size() > 15 || s.tag < 0 || s.tag > 255)
         throw new IOException("Invalid structure");
-      o.writeByte(0xb0 | s.fields.size());
+      o.writeByte(0xb0 | fields.size());
       o.writeByte(s.tag);
-      for (Object f : s.fields)
-        write(o, f, depth + 1);
+      for (Object f : fields)
+        write(o, f, depth + 1, bolt5);
       return;
     }
     if (v instanceof Map) {
@@ -102,8 +117,8 @@ public final class PackStream {
       for (Map.Entry<?, ?> e : m.entrySet()) {
         if (!(e.getKey() instanceof String))
           throw new IOException("Map keys must be strings");
-        write(o, e.getKey(), depth + 1);
-        write(o, e.getValue(), depth + 1);
+        write(o, e.getKey(), depth + 1, bolt5);
+        write(o, e.getValue(), depth + 1, bolt5);
       }
       return;
     }
@@ -111,14 +126,14 @@ public final class PackStream {
       Collection<?> c = (Collection<?>)v;
       header(o, c.size(), 0x90, 0xd4);
       for (Object f : c)
-        write(o, f, depth + 1);
+        write(o, f, depth + 1, bolt5);
       return;
     }
     if (v.getClass().isArray()) {
       int n = java.lang.reflect.Array.getLength(v);
       header(o, n, 0x90, 0xd4);
       for (int i = 0; i < n; i++)
-        write(o, java.lang.reflect.Array.get(v, i), depth + 1);
+        write(o, java.lang.reflect.Array.get(v, i), depth + 1, bolt5);
       return;
     }
     throw new IOException("Unsupported parameter type: " +
