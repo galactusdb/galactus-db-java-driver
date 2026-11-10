@@ -36,11 +36,11 @@ public final class ErrorCodes {
   public static final String FORBIDDEN =
       "Galactus.ClientError.Security.Forbidden";
   public static final String SYNTAX_ERROR =
-      "Neo.ClientError.Statement.SyntaxError";
+      "Galactus.ClientError.Statement.SyntaxError";
   public static final String SEMANTIC_ERROR =
-      "Neo.ClientError.Statement.SemanticError";
+      "Galactus.ClientError.Statement.SemanticError";
   public static final String UNAUTHORIZED =
-      "Neo.ClientError.Security.Unauthorized";
+      "Galactus.ClientError.Security.Unauthorized";
   public static final String DATABASE_NOT_FOUND =
-      "Neo.ClientError.Database.DatabaseNotFound";
+      "Galactus.ClientError.Database.DatabaseNotFound";
 }
