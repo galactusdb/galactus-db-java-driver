@@ -94,6 +94,7 @@ public final class DriverTest {
                   .equals("8531322e3330"),
           "BigDecimal plain text");
     System.out.println("Java codec tests passed (" + codec + " fixture rows)");
+    MapperTest.offline();
 
     String uri = System.getenv("GDB_TEST_URI");
     if (uri == null) {
@@ -313,6 +314,9 @@ public final class DriverTest {
       failed = true;
     }
     check(failed, "auth failure");
+    try (Driver mapped = new Driver(uri, "gdb", password, options)) {
+      MapperTest.live(mapped);
+    }
     System.out.println("Java live tests passed (Bolt " + expectBolt + ", " +
                        uri.substring(0, uri.indexOf(':')) + ")");
   }
