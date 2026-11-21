@@ -22,6 +22,7 @@ against your application.
 - [Queries and results](#queries-and-results)
 - [Transactions](#transactions)
 - [Native type mapping](#native-type-mapping)
+- [Object mapping](#object-mapping)
 - [Spatial values](#spatial-values)
 - [Errors and connection lifecycle](#errors-and-connection-lifecycle)
 - [Testing](#testing)
@@ -237,9 +238,49 @@ Driver.Result r = driver.executeQuery("RETURN decimal($amount) AS amount",
 java.math.BigDecimal amount = new java.math.BigDecimal((String) r.records.get(0).get("amount"));
 ```
 
-No ORM or automatic arbitrary-object mapping is included. Convert application
+The optional [mapper](#object-mapping) converts your own types to and from nodes. Convert application
 models and UUIDs explicitly to a supported format. See the
 [complete type mapping](docs/BLUEPRINT.md) for precision and range details.
+
+## Object mapping
+
+The driver includes an optional mapper: declare a type as a node or a relationship, and it
+converts objects to and from the graph and writes the Cypher for the everyday operations.
+It adds no dependency. [docs/MAPPER.md](docs/MAPPER.md) is the full contract, shared by every
+Galactus driver.
+
+```java
+@Mapper.Node("Person")
+public class Person {
+  @Mapper.Key public long id;
+  public String name;
+  @Mapper.Property("email_address") public String email;
+}
+public class Company {
+  @Mapper.Key public String name;
+}
+@Mapper.Relationship("WORKS_AT")
+public class WorksAt {
+  public long since;
+}
+
+Mapper mapper = new Mapper(driver);
+Person ann = mapper.save(person);
+Company acme = mapper.save(company);
+mapper.relate(ann, worksAt, acme);
+
+Person found = mapper.find(Person.class, 1L);                   // null when there is none
+List<Person> people = mapper.findAll(Person.class, Map.of("name", "Ann"), 10);
+List<Mapper.Pair<WorksAt, Company>> jobs = mapper.related(ann, WorksAt.class, Company.class);
+List<Person> named = mapper.query(Person.class,
+    "MATCH (p:Person) WHERE p.name STARTS WITH $s RETURN p", Map.of("s", "A"));
+boolean deleted = mapper.delete(Person.class, 1L);
+```
+
+Every field that is not static or transient is mapped, whatever its visibility. A mapped class needs a constructor with no parameters.
+`query` maps what a statement of your own returns, so the mapper never stands between you
+and Cypher. Every operation is one statement and joins the driver's open transaction when
+there is one.
 
 ## Spatial values
 
