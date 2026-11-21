@@ -7,7 +7,7 @@ values and explicit transactions. The driver speaks Bolt 5.4 and agrees Bolt 4.4
 with servers that offer only that. It uses the JDK alone, with **zero
 third-party runtime package dependencies**, including for TLS.
 
-**Status: 0.2 / early access.** Source is available on `main`. Version 0.2.0
+**Status: 0.3 / early access.** Source is available on `main`. Version 0.3.0
 adds Bolt 5, verified TLS straight to the Galactus server, recovery after
 database errors, error classification, element ids and exact decimals. Each
 driver owns one connection and returns eager results; install from source as
@@ -51,7 +51,7 @@ Then add the locally installed artifact to your application:
 <dependency>
   <groupId>db.galactus</groupId>
   <artifactId>galactus-db-java-driver</artifactId>
-  <version>0.2.0</version>
+  <version>0.3.0</version>
 </dependency>
 ```
 
@@ -385,10 +385,10 @@ and verified TLS.
 
 ## Scope of this release
 
-Version 0.2.0 provides direct connections over Bolt 5.4 or 4.4, verified TLS,
+Version 0.3.0 provides direct connections over Bolt 5.4 or 4.4, verified TLS,
 basic authentication, parameterised queries, eager records and summaries,
 explicit transactions, recovery after database errors, classified errors,
-native type mapping and full spatial interchange. Each driver owns one
+native type mapping, an object mapper and full spatial interchange. Each driver owns one
 connection. Connection pools, routing, sessions that send bookmarks, lazy
 cursors, cancellation, managed retries and asynchronous APIs are outside this
 release. Messages are capped at 64 MiB and nesting at 64 levels; aggregate
